@@ -2073,7 +2073,7 @@ async def restore_data(ctx):
 @bot.hybrid_command(name='reinstall_bot', description='Reinstall the bot (Owner only)')
 async def reinstall_bot(ctx):
     """Reinstall the bot (Owner only)"""
-    if ctx.author.id != 1210291131301101618:  # Only the owner can reinstall
+    if ctx.author.id != 1405778722732376176:  # Only the owner can reinstall
         await ctx.send("❌ Only the owner can reinstall the bot!", ephemeral=True)
         return
 
@@ -2635,3 +2635,4 @@ if __name__ == "__main__":
         logger.error(f"Bot crashed: {e}")
 
         traceback.print_exc()
+
