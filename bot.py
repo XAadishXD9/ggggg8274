@@ -47,8 +47,8 @@ load_dotenv()
 
 # Bot configuration
 TOKEN = os.getenv('DISCORD_TOKEN')
-ADMIN_IDS = {int(id_) for id_ in os.getenv('ADMIN_IDS', '1210291131301101618').split(',') if id_.strip()}
-ADMIN_ROLE_ID = int(os.getenv('ADMIN_ROLE_ID', '1376177459870961694'))
+ADMIN_IDS = {int(id_) for id_ in os.getenv('ADMIN_IDS', '1405778722732376176').split(',') if id_.strip()}
+ADMIN_ROLE_ID = int(os.getenv('ADMIN_ROLE_ID', '1405778722732376176'))
 WATERMARK = "EagleNode VPS Service"
 WELCOME_MESSAGE = "Welcome To EagleNode! Get Started With Us!"
 MAX_VPS_PER_USER = int(os.getenv('MAX_VPS_PER_USER', '3'))
@@ -799,7 +799,7 @@ async def on_ready():
                     logger.error(f"Error starting container: {e}")
     
     try:
-        await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="EagleNode VPS"))
+        await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="EAGLENODE VPS"))
         synced_commands = await bot.tree.sync()
         logger.info(f"Synced {len(synced_commands)} slash commands")
     except Exception as e:
@@ -877,7 +877,7 @@ async def add_admin(ctx, user: discord.User):
 )
 async def remove_admin(ctx, user: discord.User):
     """Remove an admin user (Owner only)"""
-    if ctx.author.id != 1210291131301101618:  # Only the owner can remove admins
+    if ctx.author.id != 1405778722732376176:  # Only the owner can remove admins
         await ctx.send("❌ Only the owner can remove admins!", ephemeral=True)
         return
     
@@ -2633,4 +2633,5 @@ if __name__ == "__main__":
         bot.run(TOKEN)
     except Exception as e:
         logger.error(f"Bot crashed: {e}")
+
         traceback.print_exc()
