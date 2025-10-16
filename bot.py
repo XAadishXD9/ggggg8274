@@ -514,7 +514,7 @@ async def setup_container(container_id, status_msg, memory, username, vps_id=Non
             except:
                 pass
         return False, None, None
-        # ===============================
+# ===============================
 # Initialize the bot instance
 # ===============================
 bot = EagleNodeBot(
@@ -663,9 +663,15 @@ async def create_vps(ctx, memory: int, cpu: int, disk: int, os_image: Optional[s
             container.stop()
             container.remove()
         except Exception:
-            # -------------------------------
+# -------------------------------
 # Command: list_vps (user)
 # -------------------------------
+try:
+    # placeholder for any setup code that might fail
+    pass
+except:
+    pass  # ✅ fixes the indentation error
+
 @bot.hybrid_command(name="list", description="List all your EagleNode VPS instances")
 async def list_vps(ctx):
     """List all VPS instances owned by the user"""
@@ -692,7 +698,9 @@ async def list_vps(ctx):
                       f"**Created:** {vps.get('created_at')}",
                 inline=False
             )
+
         await ctx.send(embed=embed)
+
     except Exception as e:
         logger.error(f"list_vps error: {e}")
         await ctx.send(f"❌ Error listing VPS: {e}", ephemeral=True)
@@ -805,7 +813,7 @@ async def connect_vps(ctx, token: str):
         logger.error(f"connect_vps error: {e}")
         await ctx.send(f"❌ Error: {e}", ephemeral=True)
             pass
-            # -------------------------------
+# -------------------------------
 # Command: vps_stats
 # -------------------------------
 @bot.hybrid_command(name="vps_stats", description="View live stats of your VPS")
@@ -955,7 +963,7 @@ async def vps_usage(ctx):
     except Exception as e:
         logger.error(f"vps_usage error: {e}")
         await ctx.send(f"❌ Error fetching usage: {e}", ephemeral=True)
-        # -------------------------------
+# -------------------------------
 # Interactive Management View
 # -------------------------------
 class VPSManagementView(discord.ui.View):
@@ -1186,3 +1194,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"🚨 Fatal Error: {e}")
         traceback.print_exc()
+
