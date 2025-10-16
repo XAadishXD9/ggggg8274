@@ -668,15 +668,16 @@ async def create_vps(ctx, memory: int, cpu: int, disk: int, os_image: Optional[s
 # -------------------------------
 
 async def list_vps(ctx):
-    """List all VPS instances owned by the user"""
-    try:
-    # any setup code you had here, for example:
-    await bot.tree.sync()
+# --- Fix for missing indented block above ---
+try:
+    # You can sync commands or do setup here if needed
+    pass  # ✅ prevents IndentationError
 except Exception as e:
-    logger.error(f"Error during command sync: {e}")
-    pass  # ✅ ensures Python has a valid block, even if nothing else happens
+    logger.error(f"Error during setup: {e}")
+    pass  # ✅ ensures valid except block
 
 
+# --- Command to list all VPS instances ---
 @bot.hybrid_command(name="list", description="List all your EagleNode VPS instances")
 async def list_vps(ctx):
     """List all VPS instances owned by the user"""
@@ -686,28 +687,38 @@ async def list_vps(ctx):
             await ctx.send("ℹ️ You don't have any VPS instances.", ephemeral=True)
             return
 
-        embed = discord.Embed(title="Your EagleNode VPS Instances", color=discord.Color.blue())
+        embed = discord.Embed(
+            title="Your EagleNode VPS Instances",
+            color=discord.Color.blue()
+        )
+
         for vps in user_vps:
             try:
-                container = bot.docker_client.containers.get(vps["container_id"]) if vps.get("container_id") else None
-                status = container.status.capitalize() if container else "Not Found"
+                if vps.get("container_id"):
+                    container = bot.docker_client.containers.get(vps["container_id"])
+                    status = container.status.capitalize()
+                else:
+                    status = "Not Found"
             except Exception:
                 status = "Unknown"
 
             embed.add_field(
                 name=f"VPS {vps['vps_id']}",
-                value=f"**Status:** {status}\n"
-                      f"**Memory:** {vps.get('memory')} GB\n"
-                      f"**CPU:** {vps.get('cpu')} cores\n"
-                      f"**Disk:** {vps.get('disk')} GB\n"
-                      f"**Created:** {vps.get('created_at')}",
+                value=(
+                    f"**Status:** {status}\n"
+                    f"**Memory:** {vps.get('memory')} GB\n"
+                    f"**CPU:** {vps.get('cpu')} cores\n"
+                    f"**Disk:** {vps.get('disk')} GB\n"
+                    f"**Created:** {vps.get('created_at')}"
+                ),
                 inline=False
             )
+
         await ctx.send(embed=embed)
+
     except Exception as e:
         logger.error(f"list_vps error: {e}")
         await ctx.send(f"❌ Error listing VPS: {e}", ephemeral=True)
-
 # -------------------------------
 # Command: vps_list (admin)
 # -------------------------------
@@ -1197,6 +1208,7 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"🚨 Fatal Error: {e}")
         traceback.print_exc()
+
 
 
 
