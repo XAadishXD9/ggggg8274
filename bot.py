@@ -666,13 +666,7 @@ async def create_vps(ctx, memory: int, cpu: int, disk: int, os_image: Optional[s
 # -------------------------------
 # Command: list_vps (user)
 # -------------------------------
-try:
-    # placeholder for any setup code that might fail
-    pass
-except:
-    pass  # ✅ fixes the indentation error
 
-@bot.hybrid_command(name="list", description="List all your EagleNode VPS instances")
 async def list_vps(ctx):
     """List all VPS instances owned by the user"""
     try:
@@ -692,7 +686,17 @@ async def list_vps(ctx):
             embed.add_field(
                 name=f"VPS {vps['vps_id']}",
                 value=f"**Status:** {status}\n"
-                      f"**Memory:** {vps.get('memory')} GB\n"
+      try:
+    something_here()
+except:
+    pass  # ✅ add this line to satisfy Python
+
+@bot.hybrid_command(name="list", description="List all your EagleNode VPS instances")
+async def list_vps(ctx):
+    """List all VPS instances owned by the user"""
+    try:
+        user_vps = bot.db.get_user_vps(ctx.author.id)
+        ...           f"**Memory:** {vps.get('memory')} GB\n"
                       f"**CPU:** {vps.get('cpu')} cores\n"
                       f"**Disk:** {vps.get('disk')} GB\n"
                       f"**Created:** {vps.get('created_at')}",
@@ -1194,4 +1198,5 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"🚨 Fatal Error: {e}")
         traceback.print_exc()
+
 
