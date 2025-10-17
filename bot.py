@@ -5,15 +5,10 @@ from discord import app_commands
 import os
 import random
 import string
-import json
-import subprocess
-from dotenv import load_dotenv
 import asyncio
 import datetime
 import docker
-import time
 import logging
-import traceback
 import aiohttp
 import psutil
 import platform
@@ -22,7 +17,7 @@ import sqlite3
 import pickle
 
 # -------------------------
-# Basic configuration
+# Configuration
 # -------------------------
 logging.basicConfig(
     level=logging.INFO,
@@ -34,12 +29,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger('EagleNodeBot')
 
+# Load environment
+from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN = os.getenv('DISCORD_TOKEN')
-# ADMIN_IDS env var should be comma separated user ids
 ADMIN_IDS = {int(id_.strip()) for id_ in os.getenv('ADMIN_IDS', '').split(',') if id_.strip().isdigit()}
 ADMIN_ROLE_ID = int(os.getenv('ADMIN_ROLE_ID', '0')) if os.getenv('ADMIN_ROLE_ID') else 0
+OWNER_ID = int(os.getenv('OWNER_ID', '0')) if os.getenv('OWNER_ID') else 0
 
 WATERMARK = "EAGLENODE VPS Service"
 WELCOME_MESSAGE = "Welcome To EAGLENODE! Get Started With Us!"
@@ -51,13 +48,11 @@ MAX_CONTAINERS = int(os.getenv('MAX_CONTAINERS', '100'))
 DB_FILE = 'eaglenode.db'
 BACKUP_FILE = 'eaglenode_backup.pkl'
 
-# Miner detection patterns (basic)
 MINER_PATTERNS = [
     'xmrig', 'ethminer', 'cgminer', 'sgminer', 'bfgminer',
     'minerd', 'cpuminer', 'cryptonight', 'stratum', 'pool'
 ]
 
-# Dockerfile template for building a custom image (Debian/Ubuntu compatible)
 DOCKERFILE_TEMPLATE = """
 FROM {base_image}
 
@@ -95,7 +90,7 @@ CMD ["/sbin/init"]
 """
 
 # -------------------------
-# Database helper
+# Database
 # -------------------------
 class Database:
     def __init__(self, db_file=DB_FILE):
@@ -153,7 +148,6 @@ class Database:
         }
         for k, v in defaults.items():
             self.cursor.execute('INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)', (k, v))
-        # Load admin users into ADMIN_IDS set
         self.cursor.execute('SELECT user_id FROM admin_users')
         for row in self.cursor.fetchall():
             try:
@@ -266,7 +260,6 @@ class Database:
         self.cursor.execute('SELECT * FROM system_settings')
         for row in self.cursor.fetchall():
             data['system_settings'][row[0]] = row[1]
-
         with open(path, 'wb') as f:
             pickle.dump(data, f)
         return True
@@ -275,7 +268,7 @@ class Database:
         self.conn.close()
 
 # -------------------------
-# Utility helpers
+# Utilities
 # -------------------------
 def generate_token():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=24))
@@ -288,7 +281,6 @@ def generate_ssh_password():
     return ''.join(random.choices(chars, k=16))
 
 async def run_host_command(*cmd, timeout=120):
-    """Run a host command asynchronously and return (success, stdout)"""
     try:
         proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
@@ -303,7 +295,7 @@ async def run_host_command(*cmd, timeout=120):
         return False, str(e)
 
 # -------------------------
-# Bot class
+# Bot class (fixed)
 # -------------------------
 class EagleNodeBot(commands.Bot):
     def __init__(self, *args, **kwargs):
@@ -312,37 +304,34 @@ class EagleNodeBot(commands.Bot):
         self.session = None
         self.docker_client = None
         self.system_stats = {}
-        self.loop.create_task(self.startup_tasks())
 
-    async def startup_tasks(self):
-        await self.wait_until_ready()
+    async def setup_hook(self):
         self.session = aiohttp.ClientSession()
         try:
             self.docker_client = docker.from_env()
-            logger.info("Docker client ready")
+            logger.info("✅ Docker client initialized successfully.")
         except Exception as e:
-            logger.error(f"Cannot initialize Docker client: {e}")
+            logger.error(f"❌ Cannot initialize Docker client: {e}")
             self.docker_client = None
-
-        # Optionally: reconnect containers
         await self.reconnect_containers()
+        logger.info("🔄 EagleNodeBot async startup complete.")
 
     async def reconnect_containers(self):
         if not self.docker_client:
             return
         for token, vps in list(self.db.get_all_vps().items()):
             try:
-                if not vps.get('container_id'):
+                cid = vps.get('container_id')
+                if not cid:
                     continue
-                container = self.docker_client.containers.get(vps['container_id'])
+                container = self.docker_client.containers.get(cid)
                 if container.status != 'running' and vps.get('status') == 'running':
                     container.start()
-                    logger.info(f"Started container for {vps['vps_id']}")
+                    logger.info(f"Started container for {vps.get('vps_id')}")
             except Exception as e:
                 logger.warning(f"Could not reconnect container for {vps.get('vps_id')}: {e}")
 
     async def close(self):
-        await super().close()
         if self.session:
             await self.session.close()
         if self.docker_client:
@@ -351,20 +340,20 @@ class EagleNodeBot(commands.Bot):
             except:
                 pass
         self.db.close()
+        await super().close()
 
 # -------------------------
-# Helper functions for container setup
+# tmate capture and image build
 # -------------------------
 async def capture_tmate_session(process):
-    """Read tmate output lines and return ssh session when found"""
     try:
-        # process is an asyncio subprocess with stdout
         while True:
             line = await process.stdout.readline()
             if not line:
                 break
             s = line.decode(errors='ignore').strip()
-            if "ssh session:" in s.lower() or "ssh" in s.lower():
+            # Return the first tmate ssh line seen (best-effort)
+            if "ssh" in s.lower() and "@" in s:
                 return s
         return None
     except Exception as e:
@@ -389,7 +378,6 @@ async def build_custom_image(vps_id, username, root_password, user_password, bas
     image_tag = f"eaglenode/{vps_id.lower()}:latest"
     proc = await asyncio.create_subprocess_exec("docker", "build", "-t", image_tag, temp_dir, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     stdout, stderr = await proc.communicate()
-    # Clean up
     try:
         shutil.rmtree(temp_dir)
     except:
@@ -399,22 +387,17 @@ async def build_custom_image(vps_id, username, root_password, user_password, bas
     return image_tag
 
 async def setup_container(container_id, status_msg, memory, username, vps_id=None, use_custom_image=False):
-    """Perform in-container setup: create user, SSH, tmate, watermark, resource hints."""
-    bot = global_bot  # assigned below
+    bot = eagle_bot  # the global instance (declared later)
     try:
-        # Ensure running
         if bot.docker_client:
             container = bot.docker_client.containers.get(container_id)
             if container.status != 'running':
                 container.start()
-                await asyncio.sleep(3)
+                await asyncio.sleep(2)
         ssh_password = generate_ssh_password()
-        # If container uses apt, install core packages (best-effort)
         if not use_custom_image:
-            success, out = await run_host_command("docker", "exec", container_id, "bash", "-lc", "apt-get update -y")
-            # attempt installations (non-fatal)
-            _ = await run_host_command("docker", "exec", container_id, "bash", "-lc", "apt-get install -y tmate openssh-server sudo && systemctl restart ssh || true", timeout=300)
-            # create user
+            await run_host_command("docker", "exec", container_id, "bash", "-lc", "apt-get update -y || true")
+            await run_host_command("docker", "exec", container_id, "bash", "-lc", "apt-get install -y tmate openssh-server sudo || true", timeout=300)
             cmds = [
                 f"useradd -m -s /bin/bash {username} || true",
                 f"echo '{username}:{ssh_password}' | chpasswd || true",
@@ -425,16 +408,11 @@ async def setup_container(container_id, status_msg, memory, username, vps_id=Non
             ]
             for c in cmds:
                 await run_host_command("docker", "exec", container_id, "bash", "-lc", c)
-        # Set motd and watermark
-        await run_host_command("docker", "exec", container_id, "bash", "-lc",
-                               f"echo '{WELCOME_MESSAGE}' > /etc/motd || true")
-        await run_host_command("docker", "exec", container_id, "bash", "-lc",
-                               f"echo '{WATERMARK}' > /etc/machine-info || true")
+        await run_host_command("docker", "exec", container_id, "bash", "-lc", f"echo '{WELCOME_MESSAGE}' > /etc/motd || true")
+        await run_host_command("docker", "exec", container_id, "bash", "-lc", f"echo '{WATERMARK}' > /etc/machine-info || true")
         if not vps_id:
             vps_id = generate_vps_id()
-        await run_host_command("docker", "exec", container_id, "bash", "-lc",
-                               f"echo 'eaglenode-{vps_id}' > /etc/hostname || true && hostname eaglenode-{vps_id} || true")
-        # memory hint (best-effort)
+        await run_host_command("docker", "exec", container_id, "bash", "-lc", f"echo 'eaglenode-{vps_id}' > /etc/hostname || true && hostname eaglenode-{vps_id} || true")
         try:
             memory_bytes = int(memory) * 1024 * 1024 * 1024
             await run_host_command("docker", "update", "--memory", str(memory_bytes), container_id)
@@ -451,15 +429,15 @@ async def setup_container(container_id, status_msg, memory, username, vps_id=Non
         return False, None
 
 # -------------------------
-# Global bot instance placeholder
+# Bot instance
 # -------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-global_bot = EagleNodeBot(command_prefix='/', intents=intents, help_command=None)
+eagle_bot = EagleNodeBot(command_prefix='/', intents=intents, help_command=None)
 
 # -------------------------
-# Permission helpers
+# Permission helper
 # -------------------------
 def has_admin_role(ctx):
     try:
@@ -469,36 +447,33 @@ def has_admin_role(ctx):
         else:
             user_id = ctx.author.id
             roles = getattr(ctx.author, 'roles', [])
-        if user_id in ADMIN_IDS:
+        if user_id in ADMIN_IDS or user_id == OWNER_ID:
             return True
         return any(getattr(r, "id", None) == ADMIN_ROLE_ID for r in roles)
     except Exception:
         return False
 
 # -------------------------
-# Events
+# Events & Commands
 # -------------------------
-@global_bot.event
+@eagle_bot.event
 async def on_ready():
-    logger.info(f"{global_bot.user} connected — EagleNode Bot ready.")
+    logger.info(f"{eagle_bot.user} connected — EagleNode Bot ready.")
     try:
-        await global_bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="EAGLENODE VPS"))
+        await eagle_bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="EAGLENODE VPS"))
         try:
-            await global_bot.tree.sync()
+            await eagle_bot.tree.sync()
         except Exception:
             pass
     except Exception as e:
         logger.error(f"on_ready error: {e}")
 
-# -------------------------
-# Commands (kept)
-# -------------------------
-@global_bot.hybrid_command(name='help', description='Show all available commands')
+@eagle_bot.hybrid_command(name='help', description='Show all available commands')
 async def show_commands(ctx):
     embed = discord.Embed(title="🤖 EAGLENODE VPS Bot Commands", color=discord.Color.blue())
     embed.add_field(name="User Commands", value="""
 `/list` - List your VPS instances
-`/manage_vps <vps_id>` - Manage your VPS (start/stop/restart/status)
+`/manage_vps <vps_id> [action]` - Manage your VPS (start/stop/restart/info)
 `/change_ssh_password <vps_id>` - Change SSH password for your VPS
 `/help` - Show this help message
 """, inline=False)
@@ -511,27 +486,25 @@ async def show_commands(ctx):
 """, inline=False)
     await ctx.send(embed=embed, ephemeral=True)
 
-@global_bot.hybrid_command(name='add_admin', description='Add a new admin (Admin only)')
+@eagle_bot.hybrid_command(name='add_admin', description='Add a new admin (Admin only)')
 @app_commands.describe(user="User to make admin")
 async def add_admin(ctx, user: discord.User):
     if not has_admin_role(ctx):
         await ctx.send("❌ You must be an admin to use this command!", ephemeral=True)
         return
-    global_bot.db.add_admin(user.id)
+    eagle_bot.db.add_admin(user.id)
     await ctx.send(f"✅ {user.mention} has been added as an admin!", ephemeral=True)
 
-@global_bot.hybrid_command(name='remove_admin', description='Remove an admin (Owner only)')
+@eagle_bot.hybrid_command(name='remove_admin', description='Remove an admin (Owner only)')
 @app_commands.describe(user="User to remove from admin")
 async def remove_admin(ctx, user: discord.User):
-    # Owner-only: change the owner id here if needed
-    owner_id = int(os.getenv('OWNER_ID', '0')) if os.getenv('OWNER_ID') else 0
-    if ctx.author.id != owner_id:
+    if ctx.author.id != OWNER_ID:
         await ctx.send("❌ Only the owner can remove admins!", ephemeral=True)
         return
-    global_bot.db.remove_admin(user.id)
+    eagle_bot.db.remove_admin(user.id)
     await ctx.send(f"✅ {user.mention} removed from admins.", ephemeral=True)
 
-@global_bot.hybrid_command(name='list_admins', description='List all admin users')
+@eagle_bot.hybrid_command(name='list_admins', description='List all admin users')
 async def list_admins(ctx):
     if not has_admin_role(ctx):
         await ctx.send("❌ You must be an admin to use this command!", ephemeral=True)
@@ -539,7 +512,7 @@ async def list_admins(ctx):
     admin_list = []
     for admin_id in ADMIN_IDS:
         try:
-            user = await global_bot.fetch_user(admin_id)
+            user = await eagle_bot.fetch_user(admin_id)
             admin_list.append(f"{user.name} ({admin_id})")
         except:
             admin_list.append(f"Unknown ({admin_id})")
@@ -553,10 +526,7 @@ async def list_admins(ctx):
     else:
         await ctx.send("**Admins:**\n" + "\n".join(sorted(set(admin_list))), ephemeral=True)
 
-# -------------------------
-# create_vps (admin only)
-# -------------------------
-@global_bot.hybrid_command(name='create_vps', description='Create a new VPS (Admin only)')
+@eagle_bot.hybrid_command(name='create_vps', description='Create a new VPS (Admin only)')
 @app_commands.describe(
     memory="Memory in GB",
     cpu="CPU cores",
@@ -570,17 +540,16 @@ async def create_vps_command(ctx, memory: int, cpu: int, disk: int, owner: disco
     if not has_admin_role(ctx):
         await ctx.send("❌ You must be an admin to use this command!", ephemeral=True)
         return
-    if not global_bot.docker_client:
+    if not eagle_bot.docker_client:
         await ctx.send("❌ Docker not available on host.", ephemeral=True)
         return
-    # Basic validation
     if memory < 1 or memory > 512:
         await ctx.send("❌ Memory must be between 1 and 512 GB", ephemeral=True); return
     if cpu < 1 or cpu > 64:
         await ctx.send("❌ CPU must be between 1 and 64 cores", ephemeral=True); return
     if disk < 10 or disk > 2000:
         await ctx.send("❌ Disk must be between 10 and 2000 GB", ephemeral=True); return
-    if global_bot.db.get_user_vps_count(owner.id) >= global_bot.db.get_setting('max_vps_per_user', MAX_VPS_PER_USER):
+    if eagle_bot.db.get_user_vps_count(owner.id) >= eagle_bot.db.get_setting('max_vps_per_user', MAX_VPS_PER_USER):
         await ctx.send(f"❌ {owner.mention} already has the max number of VPS instances.", ephemeral=True); return
 
     status_msg = await ctx.send("🚀 Creating EagleNode VPS... This may take a few minutes.")
@@ -591,7 +560,6 @@ async def create_vps_command(ctx, memory: int, cpu: int, disk: int, owner: disco
     root_pw = generate_ssh_password() if use_custom_image else None
 
     try:
-        # Build custom image if requested
         if use_custom_image:
             await status_msg.edit(content="🔨 Building custom Docker image (this may take several minutes)...")
             try:
@@ -601,7 +569,7 @@ async def create_vps_command(ctx, memory: int, cpu: int, disk: int, owner: disco
                 return
             await status_msg.edit(content="⚙️ Starting container from custom image...")
             mem_limit = f"{memory}g"
-            container = global_bot.docker_client.containers.run(
+            container = eagle_bot.docker_client.containers.run(
                 image_tag, detach=True, privileged=True,
                 hostname=f"eaglenode-{vps_id}",
                 mem_limit=mem_limit,
@@ -614,7 +582,7 @@ async def create_vps_command(ctx, memory: int, cpu: int, disk: int, owner: disco
             await status_msg.edit(content="⚙️ Starting container from base image...")
             mem_limit = f"{memory}g"
             try:
-                container = global_bot.docker_client.containers.run(
+                container = eagle_bot.docker_client.containers.run(
                     os_image, detach=True, privileged=True, command="tail -f /dev/null",
                     hostname=f"eaglenode-{vps_id}", mem_limit=mem_limit,
                     network=DOCKER_NETWORK,
@@ -624,7 +592,7 @@ async def create_vps_command(ctx, memory: int, cpu: int, disk: int, owner: disco
                 os_image_used = os_image
             except docker.errors.ImageNotFound:
                 await status_msg.edit(content=f"⚠️ Image {os_image} not found. Using default {DEFAULT_OS_IMAGE}")
-                container = global_bot.docker_client.containers.run(
+                container = eagle_bot.docker_client.containers.run(
                     DEFAULT_OS_IMAGE, detach=True, privileged=True, command="tail -f /dev/null",
                     hostname=f"eaglenode-{vps_id}", mem_limit=mem_limit,
                     network=DOCKER_NETWORK,
@@ -637,12 +605,10 @@ async def create_vps_command(ctx, memory: int, cpu: int, disk: int, owner: disco
         setup_success, ssh_pw = await setup_container(container.id, status_msg, memory, username, vps_id=vps_id, use_custom_image=use_custom_image)
         if not setup_success:
             raise Exception("Container setup failed.")
-        # Start tmate to get a connection string
         await status_msg.edit(content="🔐 Starting tmate session for temporary access...")
         try:
             proc = await asyncio.create_subprocess_exec("docker", "exec", container.id, "tmate", "-F", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             tmate_session_line = await capture_tmate_session(proc)
-            # don't wait indefinitely
             try:
                 proc.kill()
             except:
@@ -670,9 +636,8 @@ async def create_vps_command(ctx, memory: int, cpu: int, disk: int, owner: disco
             "status": "running",
             "use_custom_image": use_custom_image
         }
-        global_bot.db.add_vps(vps_data)
+        eagle_bot.db.add_vps(vps_data)
 
-        # Send DM to owner with embed
         emb = discord.Embed(title="🎉 EAGLENODE VPS Creation Successful", color=discord.Color.green())
         emb.add_field(name="🆔 VPS ID", value=vps_id, inline=True)
         emb.add_field(name="💾 Memory", value=f"{memory} GB", inline=True)
@@ -695,7 +660,6 @@ async def create_vps_command(ctx, memory: int, cpu: int, disk: int, owner: disco
     except Exception as e:
         logger.error(f"create_vps failed: {e}")
         await status_msg.edit(content=f"❌ Error creating VPS: {e}")
-        # cleanup container if exists
         try:
             if 'container' in locals():
                 container.stop()
@@ -703,13 +667,10 @@ async def create_vps_command(ctx, memory: int, cpu: int, disk: int, owner: disco
         except:
             pass
 
-# -------------------------
-# User commands: list, manage_vps, change_ssh_password
-# -------------------------
-@global_bot.hybrid_command(name='list', description='List all your VPS instances')
+@eagle_bot.hybrid_command(name='list', description='List all your VPS instances')
 async def list_vps(ctx):
     try:
-        user_vps = global_bot.db.get_user_vps(ctx.author.id)
+        user_vps = eagle_bot.db.get_user_vps(ctx.author.id)
         if not user_vps:
             await ctx.send("You don't have any VPS instances.", ephemeral=True); return
         embed = discord.Embed(title="Your EAGLENODE VPS Instances", color=discord.Color.blue())
@@ -725,19 +686,19 @@ async def list_vps(ctx):
         logger.error(f"list_vps error: {e}")
         await ctx.send(f"❌ Error listing VPS instances: {e}", ephemeral=True)
 
-@global_bot.hybrid_command(name='manage_vps', description='Manage your VPS (start/stop/restart/status)')
+@eagle_bot.hybrid_command(name='manage_vps', description='Manage your VPS (start/stop/restart/status)')
 @app_commands.describe(vps_id="ID of the VPS to manage", action="start | stop | restart | info")
 async def manage_vps(ctx, vps_id: str, action: str = "info"):
     try:
-        token, vps = global_bot.db.get_vps_by_id(vps_id)
+        token, vps = eagle_bot.db.get_vps_by_id(vps_id)
         if not vps:
             await ctx.send("❌ VPS not found.", ephemeral=True); return
         if vps['created_by'] != str(ctx.author.id) and not has_admin_role(ctx):
             await ctx.send("❌ You don't have permission to manage this VPS.", ephemeral=True); return
-        if not global_bot.docker_client:
+        if not eagle_bot.docker_client:
             await ctx.send("❌ Docker not available.", ephemeral=True); return
         try:
-            container = global_bot.docker_client.containers.get(vps['container_id'])
+            container = eagle_bot.docker_client.containers.get(vps['container_id'])
         except Exception:
             await ctx.send("❌ Container not found for this VPS.", ephemeral=True); return
 
@@ -747,20 +708,20 @@ async def manage_vps(ctx, vps_id: str, action: str = "info"):
                 await ctx.send("ℹ️ VPS is already running.", ephemeral=True)
             else:
                 container.start()
-                global_bot.db.update_vps(token, {'status': 'running'})
+                eagle_bot.db.update_vps(token, {'status': 'running'})
                 await ctx.send("✅ VPS started.", ephemeral=True)
         elif action == 'stop':
             if container.status != 'running':
                 await ctx.send("ℹ️ VPS is not running.", ephemeral=True)
             else:
                 container.stop()
-                global_bot.db.update_vps(token, {'status': 'stopped'})
+                eagle_bot.db.update_vps(token, {'status': 'stopped'})
                 await ctx.send("✅ VPS stopped.", ephemeral=True)
         elif action == 'restart':
             container.restart()
-            global_bot.db.update_vps(token, {'restart_count': vps.get('restart_count', 0) + 1, 'last_restart': str(datetime.datetime.now()), 'status': 'running'})
+            eagle_bot.db.update_vps(token, {'restart_count': vps.get('restart_count', 0) + 1, 'last_restart': str(datetime.datetime.now()), 'status': 'running'})
             await ctx.send("✅ VPS restarted.", ephemeral=True)
-        else:  # info
+        else:
             embed = discord.Embed(title=f"VPS {vps_id} Info", color=discord.Color.blue())
             embed.add_field(name="Status", value=vps.get('status', 'unknown'), inline=True)
             embed.add_field(name="Memory", value=f"{vps.get('memory', 'Unknown')}GB", inline=True)
@@ -773,19 +734,19 @@ async def manage_vps(ctx, vps_id: str, action: str = "info"):
         logger.error(f"manage_vps error: {e}")
         await ctx.send(f"❌ Error managing VPS: {e}", ephemeral=True)
 
-@global_bot.hybrid_command(name='change_ssh_password', description='Change the SSH password for a VPS')
+@eagle_bot.hybrid_command(name='change_ssh_password', description='Change the SSH password for a VPS')
 @app_commands.describe(vps_id="ID of the VPS to update")
 async def change_ssh_password(ctx, vps_id: str):
     try:
-        token, vps = global_bot.db.get_vps_by_id(vps_id)
+        token, vps = eagle_bot.db.get_vps_by_id(vps_id)
         if not vps:
             await ctx.send("❌ VPS not found.", ephemeral=True); return
         if vps['created_by'] != str(ctx.author.id) and not has_admin_role(ctx):
             await ctx.send("❌ You don't have permission to change password for this VPS.", ephemeral=True); return
-        if not global_bot.docker_client:
+        if not eagle_bot.docker_client:
             await ctx.send("❌ Docker not available.", ephemeral=True); return
         try:
-            container = global_bot.docker_client.containers.get(vps['container_id'])
+            container = eagle_bot.docker_client.containers.get(vps['container_id'])
         except Exception:
             await ctx.send("❌ Container not found.", ephemeral=True); return
         if container.status != 'running':
@@ -795,7 +756,7 @@ async def change_ssh_password(ctx, vps_id: str):
         success, out = await run_host_command("docker", "exec", container.id, "bash", "-lc", cmd)
         if not success:
             raise Exception(out)
-        global_bot.db.update_vps(token, {'password': new_pw})
+        eagle_bot.db.update_vps(token, {'password': new_pw})
         emb = discord.Embed(title=f"SSH Password Updated for {vps_id}", color=discord.Color.green())
         emb.add_field(name="Username", value=vps['username'], inline=True)
         emb.add_field(name="New Password", value=f"||{new_pw}||", inline=False)
@@ -809,15 +770,13 @@ async def change_ssh_password(ctx, vps_id: str):
         await ctx.send(f"❌ Error changing SSH password: {e}", ephemeral=True)
 
 # -------------------------
-# Run the bot
+# Run
 # -------------------------
 if __name__ == '__main__':
-    # Expose global bot variable to helper functions
-    global_bot = global_bot
     if TOKEN is None:
         logger.error("DISCORD_TOKEN is not set in environment. Exiting.")
     else:
         try:
-            global_bot.run(TOKEN)
+            eagle_bot.run(TOKEN)
         except Exception as e:
             logger.error(f"Failed to start bot: {e}")
