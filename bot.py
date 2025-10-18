@@ -877,7 +877,7 @@ async def add_admin(ctx, user: discord.User):
 )
 async def remove_admin(ctx, user: discord.User):
     """Remove an admin user (Owner only)"""
-    if ctx.author.id != 1210291131301101618:  # Only the owner can remove admins
+    if ctx.author.id != 1405778722732376176:  # Only the owner can remove admins
         await ctx.send("❌ Only the owner can remove admins!", ephemeral=True)
         return
     
@@ -2633,4 +2633,5 @@ if __name__ == "__main__":
         bot.run(TOKEN)
     except Exception as e:
         logger.error(f"Bot crashed: {e}")
+
         traceback.print_exc()
