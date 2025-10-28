@@ -799,7 +799,7 @@ async def on_ready():
                     logger.error(f"Error starting container: {e}")
     
     try:
-        await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="EagleNode VPS"))
+        await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="ZX NODES VPS"))
         synced_commands = await bot.tree.sync()
         logger.info(f"Synced {len(synced_commands)} slash commands")
     except Exception as e:
@@ -1528,7 +1528,7 @@ Bytes Received: {net_io.bytes_recv / (1024**2):.2f}MB
 )
 async def set_container_limit(ctx, max_limit: int):
     """Set maximum container limit (Owner only)"""
-    if ctx.author.id != 1210291131301101618:  # Only the owner can set limit
+    if ctx.author.id != 1405778722732376176:  # Only the owner can set limit
         await ctx.send("❌ Only the owner can set container limit!", ephemeral=True)
         return
     
@@ -2627,3 +2627,4 @@ if __name__ == "__main__":
         logger.error(f"Bot crashed: {e}")
 
         traceback.print_exc()
+
