@@ -823,7 +823,6 @@ async def show_commands(ctx):
 `/change_ssh_password <vps_id>` - Change SSH password
 `/vps_shell <vps_id>` - Get shell access to your VPS
 `/vps_console <vps_id>` - Get direct console access to your VPS
-`/vps_usage` - Show your VPS usage statistics
 """, inline=False)
         
         # Admin commands
@@ -831,14 +830,10 @@ async def show_commands(ctx):
             embed.add_field(name="Admin Commands", value="""
 `/vps_list` - List all VPS instances
 `/delete_vps <vps_id>` - Delete a VPS
-`/admin_stats` - Show system statistics
-`/cleanup_vps` - Cleanup inactive VPS instances
 `/add_admin <user>` - Add a new admin
 `/remove_admin <user>` - Remove an admin (Owner only)
 `/list_admins` - List all admin users
-`/system_info` - Show detailed system information
 `/container_limit <max>` - Set maximum container limit
-`/global_stats` - Show global usage statistics
 `/migrate_vps <vps_id>` - Migrate VPS to another host
 `/emergency_stop <vps_id>` - Force stop a problematic VPS
 `/emergency_remove <vps_id>` - Force remove a problematic VPS
@@ -847,9 +842,6 @@ async def show_commands(ctx):
 `/edit_vps <vps_id> <memory> <cpu> <disk>` - Edit VPS specifications
 `/ban_user <user>` - Ban a user from creating VPS
 `/unban_user <user>` - Unban a user
-`/list_banned` - List banned users
-`/backup_data` - Backup all data
-`/restore_data` - Restore from backup
 `/reinstall_bot` - Reinstall the bot (Owner only)
 """, inline=False)
         
@@ -2635,4 +2627,3 @@ if __name__ == "__main__":
         logger.error(f"Bot crashed: {e}")
 
         traceback.print_exc()
-
